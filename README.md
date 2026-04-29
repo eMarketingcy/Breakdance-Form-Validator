@@ -132,6 +132,52 @@ Breakdance's UI:
 
 ## Changelog
 
+### 1.3.0 — 2026-04-29
+
+**Bug Fixes**
+
+- **Character blocking did not work on desktop for any input method other than
+  physical keyboard**: `keydown` only fires for hardware key presses — it is
+  completely bypassed by right-click paste, drag-and-drop text, browser autofill,
+  speech input, and browser extensions that inject values. The same gap existed on
+  mobile for IME composition. Added `beforeinput` as the primary blocking layer:
+  it fires before the DOM changes for *every* input method on every platform, and
+  `e.preventDefault()` cleanly stops the insertion. `keydown` is kept as a fallback
+  for older browsers. The existing `input` handler (layer 3) remains as a final
+  safety net. This triple-layer defence now reliably blocks letters in the phone
+  field and digits in the name fields everywhere.
+
+- **Cyrillic blocking in email alternated between working and not working on
+  desktop**: The shared `CYRILLIC_REGEX` used the `g` flag. In JavaScript, a
+  regex with `g` is stateful — calling `.test()` advances `lastIndex`, so every
+  other `.test()` call on the same regex object returns the wrong result. Split
+  into `CYRILLIC_TEST_REGEX` (no `g`, used for `.test()`) and
+  `CYRILLIC_STRIP_REGEX` (with `g`, used for `.replace()`).
+
+- **Plugin did not initialise on fast desktop connections**: When the script was
+  served from cache, it executed *after* `DOMContentLoaded` had already fired.
+  The sole `DOMContentLoaded` listener never ran. Fixed with three complementary
+  bootstrap mechanisms:
+  1. **Immediate run** — `initForms()` is called as soon as the script parses,
+     catching forms already in the DOM regardless of `readyState`.
+  2. **DOMContentLoaded fallback** — still attached when `readyState === 'loading'`,
+     for the minority case where the script loads before parsing finishes.
+  3. **MutationObserver** — watches for Breakdance forms added to the DOM after
+     initial load (popup forms, tab-switched content, modals). A `WeakSet` tracks
+     already-initialised containers so observers never double-attach.
+
+- **`NAME_BLOCKED_KEY_REGEX` used in `keydown` did not match `NAME_STRIP_REGEX`
+  used in `input`**: The two were defined independently and could drift. Unified
+  to a single source of truth: `NAME_FORBIDDEN_KEY_REGEX` (no `g`) for `.test()`
+  in `keydown` and `beforeinput`, and `NAME_STRIP_REGEX` (with `g`) for
+  `.replace()` in `input`.
+
+- **`keydown` name handler missing `Ctrl`/`Meta` guard**: Unlike the phone handler,
+  the name `keydown` handler did not have `if (e.ctrlKey || e.metaKey) return`.
+  Fixed so keyboard shortcuts (Ctrl+A, Ctrl+Z, etc.) are never accidentally blocked.
+
+---
+
 ### 1.2.0 — 2026-04-29
 
 **Bug Fixes**
