@@ -1,0 +1,65 @@
+/**
+ * Breakdance Form Validator — validator.css
+ *
+ * Styles for the error tooltip and invalid field highlight.
+ * Uses low-specificity selectors so they're easy to override
+ * from a theme or Breakdance's custom CSS panel if needed.
+ */
+
+/* ── Invalid field highlight ─────────────────────────────────────────────── */
+
+.bfv-field-error {
+  border-color: #e02b2b !important; /* Red border override */
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(224, 43, 43, 0.20);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* ── Error tooltip ───────────────────────────────────────────────────────── */
+
+.bfv-tooltip {
+  display: block;
+  position: relative;       /* Sits in normal document flow, directly below the input */
+
+  margin-top: 5px;
+  padding: 5px 10px;
+  border-radius: 4px;
+
+  background-color: #e02b2b;
+  color: #ffffff;
+
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+
+  /* Small upward-pointing arrow via a CSS pseudo-element */
+  pointer-events: none;     /* Don't block clicks on elements below */
+  z-index: 9999;
+
+  /* Smooth appearance */
+  animation: bfv-fadeIn 0.18s ease forwards;
+}
+
+/* Arrow pointing up at the field above */
+.bfv-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 12px;
+  border-width: 0 6px 6px 6px;
+  border-style: solid;
+  border-color: transparent transparent #e02b2b transparent;
+}
+
+/* ── Fade-in animation ───────────────────────────────────────────────────── */
+
+@keyframes bfv-fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
