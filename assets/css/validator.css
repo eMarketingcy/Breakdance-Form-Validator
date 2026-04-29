@@ -9,7 +9,7 @@
 /* ── Invalid field highlight ─────────────────────────────────────────────── */
 
 .bfv-field-error {
-  border-color: #e02b2b !important; /* Red border override */
+  border-color: #e02b2b !important;
   outline: none;
   box-shadow: 0 0 0 2px rgba(224, 43, 43, 0.20);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -19,9 +19,17 @@
 
 .bfv-tooltip {
   display: block;
-  position: relative;       /* Sits in normal document flow, directly below the input */
 
-  margin-top: 5px;
+  /*
+   * position: absolute removes the tooltip from normal flow so it overlays
+   * content below rather than pushing it down. The nearest positioned ancestor
+   * (typically the field wrapper) becomes the offset parent.
+   * z-index only works on positioned elements — this fixes the stacking issue.
+   */
+  position: absolute;
+  z-index: 9999;
+
+  margin-top: 4px;
   padding: 5px 10px;
   border-radius: 4px;
 
@@ -31,12 +39,10 @@
   font-size: 12px;
   font-weight: 600;
   line-height: 1.4;
+  white-space: nowrap;
 
-  /* Small upward-pointing arrow via a CSS pseudo-element */
-  pointer-events: none;     /* Don't block clicks on elements below */
-  z-index: 9999;
+  pointer-events: none;
 
-  /* Smooth appearance */
   animation: bfv-fadeIn 0.18s ease forwards;
 }
 
@@ -49,6 +55,18 @@
   border-width: 0 6px 6px 6px;
   border-style: solid;
   border-color: transparent transparent #e02b2b transparent;
+}
+
+/* ── Field wrapper: establishes stacking context for the absolute tooltip ── */
+/*
+ * Breakdance field wrappers (.bde-form__field or similar) need
+ * position: relative so the absolute tooltip is offset from them.
+ * This rule is intentionally broad — if it conflicts with your layout,
+ * scope it more tightly in Breakdance's Custom CSS panel.
+ */
+.bde-form .bfv-field-error,
+.breakdance-form .bfv-field-error {
+  position: relative;
 }
 
 /* ── Fade-in animation ───────────────────────────────────────────────────── */

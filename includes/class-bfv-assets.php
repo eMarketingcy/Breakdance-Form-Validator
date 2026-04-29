@@ -5,13 +5,9 @@
  * Responsible for registering and enqueueing all front-end assets
  * (CSS and JS) for the Breakdance Form Validator plugin.
  *
- * Using a class here prevents naming collisions and groups all
- * asset-related logic in one maintainable place.
- *
  * @package Breakdance_Form_Validator
  */
 
-// Exit if accessed directly.
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
@@ -30,35 +26,26 @@ class BFV_Assets {
      * Enqueue front-end scripts and styles.
      *
      * Hooked to 'wp_enqueue_scripts' — fires on all public-facing pages.
-     * The script is loaded in the footer (last argument = true) to ensure
-     * the DOM is ready and Breakdance's own scripts have already loaded.
+     * The script is loaded in the footer to ensure the DOM is ready and
+     * Breakdance's own scripts have already loaded.
      */
     public function enqueue_frontend_assets() {
 
-        // ── Stylesheet ──────────────────────────────────────────────────────
-        // Provides styling for the custom error tooltip.
         wp_enqueue_style(
-            'bfv-validator-style',                          // Unique handle.
-            BFV_PLUGIN_URL . 'assets/css/validator.css',   // File URL.
-            array(),                                        // No dependencies.
-            BFV_VERSION                                     // Cache-busted by version string.
+            'bfv-validator-style',
+            BFV_PLUGIN_URL . 'assets/css/validator.css',
+            array(),
+            BFV_VERSION
         );
 
-        // ── Main Validator Script ────────────────────────────────────────────
         wp_enqueue_script(
-            'bfv-validator-script',                         // Unique handle.
-            BFV_PLUGIN_URL . 'assets/js/validator.js',     // File URL.
-            array(),                                        // No jQuery dependency — pure ES6.
-            BFV_VERSION,                                    // Cache-busted by version string.
-            true                                            // Load in footer.
+            'bfv-validator-script',
+            BFV_PLUGIN_URL . 'assets/js/validator.js',
+            array(),
+            BFV_VERSION,
+            true
         );
 
-        // ── Inline Configuration (PHP → JS bridge) ───────────────────────────
-        // wp_localize_script passes a PHP array as a JS object to the page.
-        // This is the proper WordPress way to inject dynamic server-side data
-        // into front-end scripts (nonces, AJAX URLs, config flags, etc.).
-        //
-        // The object will be available in JS as `bfvConfig`.
         wp_localize_script(
             'bfv-validator-script',
             'bfvConfig',
@@ -67,24 +54,31 @@ class BFV_Assets {
     }
 
     /**
-     * Returns the configuration array that will be serialised and passed
-     * to the front end as the `bfvConfig` global JS object.
+     * Returns the configuration array serialised and passed to the front end
+     * as the `bfvConfig` global JS object.
      *
-     * Keeping the config here means a developer can later make these values
-     * filterable (add_filter) or dynamic (e.g. per post type) without
-     * touching the JavaScript at all.
+     * All values are filterable so themes or child plugins can override them
+     * without editing this file:
+     *
+     *   add_filter( 'bfv_js_config', function( $config ) {
+     *       $config['formSelector'] = '.my-custom-form';
+     *       return $config;
+     *   } );
      *
      * @return array
      */
     private function get_js_config() {
-        return array(
+        $config = array(
             // CSS selector used to find all Breakdance forms on the page.
-            // Breakdance renders its form element with this class.
-            'formSelector'   => '.breakdance-form',
+            // Targets both the native Breakdance wrapper (.bde-form) and the
+            // legacy custom class (.breakdance-form) in one comma-separated string.
+            // The JS bootstrap resolves the actual <form> element from whatever
+            // element the selector returns, handling wrapper-div patterns correctly.
+            'formSelector'   => '.bde-form, .breakdance-form',
 
             // Attribute used to identify field purpose.
-            // Breakdance uses the `name` attribute on its inputs.
-            // Adjust these strings if your field names differ.
+            // These must match the `name` attribute on your Breakdance form inputs.
+            // Check field names in Breakdance's form editor or by inspecting the HTML.
             'fieldNames'     => array(
                 'firstName' => 'first-name',
                 'lastName'  => 'last-name',
@@ -93,11 +87,22 @@ class BFV_Assets {
             ),
 
             // The exact message shown in the error tooltip.
-            'errorMessage'   => '! Please correct this field.',
+            'errorMessage'   => __( '! Please correct this field.', 'breakdance-form-validator' ),
 
-            // Minimum and maximum length for name fields.
+            // Minimum and maximum character length for name fields.
             'nameMinLength'  => 2,
             'nameMaxLength'  => 30,
+
+            // Minimum number of digits required for a valid phone number.
+            // 7 is the shortest real-world local number.
+            'phoneMinDigits' => 7,
         );
+
+        /**
+         * Filter the JS config array before it is passed to the front end.
+         *
+         * @param array $config Associative array of configuration values.
+         */
+        return apply_filters( 'bfv_js_config', $config );
     }
 }

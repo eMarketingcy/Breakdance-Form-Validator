@@ -21,11 +21,12 @@
 const CONFIG = {
 
   // ── Selectors ─────────────────────────────────────────────────────────────
-  // Breakdance wraps each form in an element with this class.
-  // If your theme or Breakdance version uses a different selector, update here.
+  // Breakdance wraps each form in a div with class "bde-form".
+  // The plugin resolves the actual <form> element from the matched container.
+  // Fallback chain: PHP config → Breakdance native class → custom class.
   FORM_SELECTOR: (typeof bfvConfig !== 'undefined' && bfvConfig.formSelector)
     ? bfvConfig.formSelector
-    : '.breakdance-form',
+    : '.bde-form, .breakdance-form',
 
   // The `name` attribute values Breakdance assigns to each input.
   // Match these to the field names you set inside Breakdance's form editor.
@@ -39,16 +40,14 @@ const CONFIG = {
       },
 
   // ── Name field rules ──────────────────────────────────────────────────────
-  // Characters allowed in name fields.
-  // Unicode ranges: \u0041-\u007A  = basic Latin letters (A-z)
-  //                 \u00C0-\u024F  = Latin Extended (accented chars)
-  //                 \u0400-\u04FF  = Cyrillic block
-  // Non-letter allowed: hyphen (-), apostrophe ('), space ( )
-  NAME_ALLOWED_CHARS_REGEX : /^[\u0041-\u007A\u00C0-\u024F\u0400-\u04FFa-zA-Z\s'\-]+$/i,
+  // Allowed characters: Latin letters (A-Z, a-z), Latin Extended (accented),
+  // Cyrillic block, hyphen, apostrophe, and space.
+  // NOTE: A-Z = A-Z, a-z = a-z (avoids the [,\,],^,_,`
+  //       non-letter chars that sit between Z(90) and a(97) in ASCII).
+  NAME_ALLOWED_CHARS_REGEX : /^[A-Za-zÀ-ɏЀ-ӿ\s'\-]+$/,
 
   // Regex used on keydown to BLOCK individual forbidden characters.
   // Blocks: digits 0-9, and all common special/punctuation characters.
-  // Any character NOT in the allowed set above will be blocked here.
   NAME_BLOCKED_KEY_REGEX   : /[\d!@#$%^&*()+={}\[\]:;"<>,.?\/\\|`~]/,
 
   // Length constraints for first and last name.
@@ -63,13 +62,20 @@ const CONFIG = {
     'ArrowUp', 'ArrowDown', 'Home', 'End', 'Tab',
   ],
 
+  // Minimum number of digits required for a valid phone number.
+  // 7 is the shortest real-world local phone number (e.g. some Pacific islands).
+  PHONE_MIN_DIGITS : (typeof bfvConfig !== 'undefined' && bfvConfig.phoneMinDigits)
+    ? Number(bfvConfig.phoneMinDigits)
+    : 7,
+
   // ── Email field rules ─────────────────────────────────────────────────────
   // Standard email validation: must have chars@chars.chars
   EMAIL_REGEX : /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/,
 
   // Unicode range for the Cyrillic script block (U+0400 – U+04FF).
-  // Used to block Cyrillic characters from being typed into the email field.
-  CYRILLIC_REGEX : /[\u0400-\u04FF]/,
+  // The `g` flag is required to strip ALL Cyrillic characters from pasted content,
+  // not just the first one.
+  CYRILLIC_REGEX : /[Ѐ-ӿ]/g,
 
   // ── Error tooltip ─────────────────────────────────────────────────────────
   ERROR_MESSAGE    : (typeof bfvConfig !== 'undefined' && bfvConfig.errorMessage)
@@ -93,10 +99,12 @@ const CONFIG = {
 class BreakdanceFormValidator {
 
   /**
-   * @param {HTMLFormElement} formEl — The specific form DOM element to validate.
+   * @param {HTMLFormElement} formEl      — The actual <form> DOM element to validate.
+   * @param {HTMLElement}     containerEl — The matched container (may equal formEl).
    */
-  constructor( formEl ) {
-    this.form = formEl;
+  constructor( formEl, containerEl ) {
+    this.form      = formEl;
+    this.container = containerEl || formEl;
 
     // Resolve all relevant input elements once at construction time.
     // Using [name="..."] attribute selectors to match Breakdance's output.
@@ -135,48 +143,60 @@ class BreakdanceFormValidator {
 
     // Block forbidden characters as they are typed.
     field.addEventListener( 'keydown', ( e ) => {
-      if ( this._isControlKey( e ) ) return; // Always allow navigation/editing keys.
+      if ( this._isControlKey( e ) ) return;
       if ( CONFIG.NAME_BLOCKED_KEY_REGEX.test( e.key ) ) {
-        e.preventDefault(); // Silently swallow the keystroke.
+        e.preventDefault();
       }
     } );
 
-    // Enforce max length and clear error on valid input change.
     field.addEventListener( 'input', () => {
       // Truncate silently if pasted content exceeds max length.
       if ( field.value.length > CONFIG.NAME_MAX_LENGTH ) {
         field.value = field.value.slice( 0, CONFIG.NAME_MAX_LENGTH );
       }
-      // Clear the error tooltip as soon as the user starts correcting.
       this._clearError( field );
     } );
   }
 
   /**
-   * Forces the phone input to type="tel" (improves mobile numeric keyboard)
-   * and blocks any non-numeric keystrokes.
+   * Forces the phone input to type="tel" (improves mobile numeric keyboard),
+   * allows digits and a leading `+` for international format, and sanitises
+   * pasted content by stripping disallowed characters.
    * @param {HTMLInputElement|null} field
    */
   _setupPhoneField( field ) {
     if ( ! field ) return;
 
-    // Dynamically ensure the input type is "tel" regardless of how
-    // Breakdance rendered it in the DOM.
     field.setAttribute( 'type', 'tel' );
 
-    // Block non-numeric key presses.
     field.addEventListener( 'keydown', ( e ) => {
       if ( this._isControlKey( e ) ) return;
       if ( e.ctrlKey || e.metaKey )  return; // Allow copy/paste shortcuts.
 
-      // Allow digit keys (both main keyboard and numpad).
-      const isDigit = ( e.key >= '0' && e.key <= '9' ) || e.code.startsWith( 'Numpad' );
-      if ( ! isDigit ) {
-        e.preventDefault();
-      }
+      // Allow a leading `+` for international dialling codes.
+      if ( e.key === '+' ) return;
+
+      // Allow digit keys on the main keyboard.
+      if ( e.key >= '0' && e.key <= '9' ) return;
+
+      // Allow digit keys on the numpad only — exclude NumpadAdd, NumpadDecimal, etc.
+      const numpadDigitCodes = [
+        'Numpad0','Numpad1','Numpad2','Numpad3','Numpad4',
+        'Numpad5','Numpad6','Numpad7','Numpad8','Numpad9',
+      ];
+      if ( numpadDigitCodes.includes( e.code ) ) return;
+
+      e.preventDefault();
     } );
 
-    field.addEventListener( 'input', () => this._clearError( field ) );
+    // Sanitise paste: keep only digits and a leading `+`.
+    field.addEventListener( 'input', () => {
+      const raw      = field.value;
+      const hasPlus  = raw.startsWith( '+' );
+      const digitsOnly = raw.replace( /\D/g, '' );
+      field.value    = hasPlus ? '+' + digitsOnly : digitsOnly;
+      this._clearError( field );
+    } );
   }
 
   /**
@@ -194,10 +214,10 @@ class BreakdanceFormValidator {
       }
     } );
 
-    // Also sanitise pasted Cyrillic content.
+    // Strip any Cyrillic that slips through via paste.
+    // CYRILLIC_REGEX uses the `g` flag so ALL occurrences are removed, not just the first.
     field.addEventListener( 'input', () => {
       if ( CONFIG.CYRILLIC_REGEX.test( field.value ) ) {
-        // Strip all Cyrillic characters that may have been pasted in.
         field.value = field.value.replace( CONFIG.CYRILLIC_REGEX, '' );
       }
       this._clearError( field );
@@ -205,33 +225,56 @@ class BreakdanceFormValidator {
   }
 
   /**
-   * Intercepts the form's submit event.
-   * Runs all validation checks and shows errors or allows submission.
+   * Intercepts form submission via two complementary strategies:
+   *
+   * 1. Native `submit` event (capture phase) — fires before Breakdance's
+   *    bubble-phase handler when the user presses Enter or clicks a native button.
+   *
+   * 2. Submit-button `click` handler — catches cases where Breakdance attaches
+   *    its AJAX logic to the button click rather than the form's submit event.
+   *
+   * Both paths call the same `_handleValidation` method so logic is not duplicated.
    */
   _setupSubmitInterception() {
+    // Strategy 1: capture-phase form submit.
     this.form.addEventListener( 'submit', ( e ) => {
-
-      // Clear all existing error tooltips before a fresh validation pass.
-      this._clearAllErrors();
-
-      const errors = this._runAllValidations();
-
-      if ( errors.length > 0 ) {
-        // Block the native form submission (and thus Breakdance's submit handler).
+      if ( ! this._handleValidation() ) {
         e.preventDefault();
-        e.stopImmediatePropagation(); // Prevent Breakdance's listener from firing.
-
-        // Show a tooltip next to every invalid field.
-        errors.forEach( ( field ) => this._showError( field ) );
-
-        // Scroll to and focus the first invalid field for accessibility.
-        errors[ 0 ].focus( { preventScroll: false } );
+        e.stopImmediatePropagation();
       }
-      // If errors is empty, do nothing — allow normal submission to proceed.
-    }, true ); // `true` = capture phase, runs before Breakdance's bubble-phase listener.
+    }, true );
+
+    // Strategy 2: submit button click interception.
+    const submitBtn = this.form.querySelector( 'button[type="submit"], input[type="submit"]' );
+    if ( submitBtn ) {
+      submitBtn.addEventListener( 'click', ( e ) => {
+        if ( ! this._handleValidation() ) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      }, true );
+    }
   }
 
   // ── Private: Validation Logic ────────────────────────────────────────────
+
+  /**
+   * Central validation entry point shared by both interception strategies.
+   * Clears old errors, runs all checks, shows new errors.
+   * @returns {boolean} true = all valid, false = at least one error shown.
+   */
+  _handleValidation() {
+    this._clearAllErrors();
+    const errors = this._runAllValidations();
+
+    if ( errors.length > 0 ) {
+      errors.forEach( ( field ) => this._showError( field ) );
+      errors[ 0 ].focus( { preventScroll: false } );
+      return false;
+    }
+
+    return true;
+  }
 
   /**
    * Runs all individual field validations.
@@ -245,18 +288,16 @@ class BreakdanceFormValidator {
     if ( ! this._validatePhoneField( this.fields.phone ) )    invalid.push( this.fields.phone );
     if ( ! this._validateEmailField( this.fields.email ) )    invalid.push( this.fields.email );
 
-    // Filter out nulls (fields not found in the DOM).
     return invalid.filter( Boolean );
   }
 
   /**
-   * Validates a name field: must be non-empty, meet length constraints,
-   * and contain only allowed characters.
+   * Validates a name field: non-empty, within length range, allowed chars only.
    * @param {HTMLInputElement|null} field
-   * @returns {boolean} true = valid.
+   * @returns {boolean}
    */
   _validateNameField( field ) {
-    if ( ! field ) return true; // Skip if field doesn't exist on this form.
+    if ( ! field ) return true;
 
     const val = field.value.trim();
 
@@ -268,18 +309,19 @@ class BreakdanceFormValidator {
   }
 
   /**
-   * Validates the phone field: must be non-empty.
-   * Character blocking is handled at keydown; we just check presence here.
+   * Validates the phone field: must contain at least PHONE_MIN_DIGITS digits.
+   * A leading `+` is allowed but does not count toward the digit minimum.
    * @param {HTMLInputElement|null} field
    * @returns {boolean}
    */
   _validatePhoneField( field ) {
     if ( ! field ) return true;
-    return field.value.trim().length > 0;
+    const digits = field.value.replace( /\D/g, '' );
+    return digits.length >= CONFIG.PHONE_MIN_DIGITS;
   }
 
   /**
-   * Validates the email field: must match the standard email regex.
+   * Validates the email field against the standard email regex.
    * @param {HTMLInputElement|null} field
    * @returns {boolean}
    */
@@ -295,7 +337,6 @@ class BreakdanceFormValidator {
    * @param {HTMLInputElement} field
    */
   _showError( field ) {
-    // Guard: don't add a duplicate tooltip.
     if ( field.nextElementSibling && field.nextElementSibling.classList.contains( CONFIG.TOOLTIP_CLASS ) ) {
       return;
     }
@@ -303,20 +344,17 @@ class BreakdanceFormValidator {
     const tooltip = document.createElement( 'span' );
     tooltip.className   = CONFIG.TOOLTIP_CLASS;
     tooltip.textContent = CONFIG.ERROR_MESSAGE;
-    tooltip.setAttribute( 'role', 'alert' ); // Accessibility: announce to screen readers.
+    tooltip.setAttribute( 'role', 'alert' );
     tooltip.setAttribute( 'aria-live', 'assertive' );
 
-    // Insert the tooltip immediately after the input in the DOM.
     field.insertAdjacentElement( 'afterend', tooltip );
 
-    // Apply the error highlight class to the input itself.
     field.classList.add( CONFIG.ERROR_CLASS );
     field.setAttribute( 'aria-invalid', 'true' );
   }
 
   /**
    * Removes the error tooltip and highlight class from a single field.
-   * Called on 'input' events so the UI clears as the user corrects the field.
    * @param {HTMLInputElement} field
    */
   _clearError( field ) {
@@ -333,7 +371,6 @@ class BreakdanceFormValidator {
 
   /**
    * Clears all error tooltips from every managed field.
-   * Called at the beginning of each submit attempt for a clean slate.
    */
   _clearAllErrors() {
     Object.values( this.fields ).forEach( ( field ) => this._clearError( field ) );
@@ -342,17 +379,19 @@ class BreakdanceFormValidator {
   // ── Private: Helpers ─────────────────────────────────────────────────────
 
   /**
-   * Finds an input element within this form by its `name` attribute.
-   * @param {string} name — The value of the name attribute.
+   * Finds an input (or textarea) within this form by its `name` attribute.
+   * Searches the container element so fields outside the <form> tag but
+   * still part of the Breakdance widget are also found.
+   * @param {string} name
    * @returns {HTMLInputElement|null}
    */
   _findField( name ) {
-    return this.form.querySelector( `input[name="${ name }"], textarea[name="${ name }"]` );
+    return this.container.querySelector( `input[name="${ name }"], textarea[name="${ name }"]` );
   }
 
   /**
-   * Returns true if the key event represents a control/navigation key
-   * that should never be blocked (Backspace, arrows, Tab, etc.).
+   * Returns true if the key event is a control/navigation key that
+   * should never be blocked.
    * @param {KeyboardEvent} e
    * @returns {boolean}
    */
@@ -366,20 +405,31 @@ class BreakdanceFormValidator {
    3. BOOTSTRAP
    Wait for the full DOM to be parsed, then find every Breakdance form
    on the page and attach a validator instance to each one.
+
+   Handles two rendering patterns:
+     a) FORM_SELECTOR matches the <form> element directly.
+     b) FORM_SELECTOR matches a wrapper element — the actual <form> is found
+        inside it. This covers Breakdance's .bde-form wrapper pattern.
    ============================================================================= */
 
 document.addEventListener( 'DOMContentLoaded', () => {
 
-  const forms = document.querySelectorAll( CONFIG.FORM_SELECTOR );
+  const containers = document.querySelectorAll( CONFIG.FORM_SELECTOR );
 
-  if ( forms.length === 0 ) {
-    // No Breakdance forms found — exit silently. Nothing to validate.
+  if ( containers.length === 0 ) {
     return;
   }
 
-  forms.forEach( ( formEl ) => {
-    // Each form gets its own isolated validator instance.
-    new BreakdanceFormValidator( formEl );
+  containers.forEach( ( container ) => {
+    // Resolve the actual <form> element whether the selector hit the form
+    // itself or a parent wrapper element.
+    const formEl = ( container.tagName === 'FORM' )
+      ? container
+      : container.querySelector( 'form' );
+
+    if ( ! formEl ) return;
+
+    new BreakdanceFormValidator( formEl, container );
   } );
 
 } );
