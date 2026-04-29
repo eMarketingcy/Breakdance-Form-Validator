@@ -132,6 +132,53 @@ Breakdance's UI:
 
 ## Changelog
 
+### 1.5.0 — 2026-04-29
+
+**New Feature — Phone Field Country Selector**
+
+- **Country flag + dial-code dropdown on the phone field**: A clickable button
+  showing the selected country's emoji flag and international dial code is
+  injected to the left of the phone input. The country code is automatically
+  prepended to the field value, forcing every submission to include a valid
+  international prefix.
+
+- **190+ countries supported**: Full ISO 3166-1 alpha-2 list stored in the new
+  `assets/js/phone-countries.js` file (loaded as a dependency before the main
+  validator). Emoji flags are generated at runtime from Unicode Regional
+  Indicator Symbols — no image files or CDN required.
+
+- **Live search inside the dropdown**: Customers can filter the country list by
+  name, dial code, or ISO code. Results update instantly as they type.
+
+- **Keyboard accessible**: Full keyboard navigation — `ArrowDown`/`ArrowUp` to
+  move through the list, `Enter`/`Space` to select, `Escape` to close, focus
+  returns to the phone input after selection.
+
+- **Intelligent country detection on existing values**: If the phone input
+  already contains a value with a `+` prefix (e.g. page reload, auto-fill), the
+  selector automatically matches and pre-selects the correct country.
+
+- **Country switching preserves the local number**: When a customer changes
+  country after typing, the local digits they entered are preserved and only the
+  country code prefix is swapped.
+
+- **Admin setting — Default Country** (`Settings → BF Validator`): A dropdown
+  select lists every supported country so admins can choose which country is
+  pre-selected when the form loads. Default: United States (+1).
+
+- **Enhanced phone validation**: Validation now additionally verifies that at
+  least one local digit exists beyond the country code, preventing submission
+  of a dial-code-only value.
+
+- **Error tooltip repositioned**: The red error tooltip now anchors below the
+  entire phone row (button + input combined) rather than floating mid-widget.
+
+- **Mobile responsive**: On screens narrower than 520 px the dropdown expands
+  to the full form width. The dial-code text in the button is hidden on very
+  small screens, leaving only the flag to save space.
+
+---
+
 ### 1.4.0 — 2026-04-29
 
 **Bug Fixes**

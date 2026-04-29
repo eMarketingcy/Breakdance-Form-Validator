@@ -28,9 +28,17 @@ class BFV_Assets {
         );
 
         wp_enqueue_script(
+            'bfv-phone-countries',
+            BFV_PLUGIN_URL . 'assets/js/phone-countries.js',
+            array(),
+            BFV_VERSION,
+            true
+        );
+
+        wp_enqueue_script(
             'bfv-validator-script',
             BFV_PLUGIN_URL . 'assets/js/validator.js',
-            array(),
+            array( 'bfv-phone-countries' ),
             BFV_VERSION,
             true
         );
@@ -67,6 +75,7 @@ class BFV_Assets {
             'nameMinLength'  => (int) $s['name_min_length'],
             'nameMaxLength'  => (int) $s['name_max_length'],
             'phoneMinDigits' => (int) $s['phone_min_digits'],
+            'defaultCountry' => $s['default_country'],
         );
 
         /**
