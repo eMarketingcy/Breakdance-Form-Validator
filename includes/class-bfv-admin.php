@@ -54,10 +54,10 @@ class BFV_Admin {
     public static function get_defaults() {
         return array(
             'form_selector'    => '.bde-form, .breakdance-form',
-            'field_first_name' => 'first-name',
-            'field_last_name'  => 'last-name',
-            'field_phone'      => 'phone',
-            'field_email'      => 'email',
+            'field_first_name' => 'fields[first_name]',
+            'field_last_name'  => 'fields[last_name]',
+            'field_phone'      => 'fields[phone]',
+            'field_email'      => 'fields[email]',
             'name_min_length'  => 2,
             'name_max_length'  => 30,
             'phone_min_digits' => 7,
@@ -136,8 +136,8 @@ class BFV_Admin {
             __( 'First Name field name', 'breakdance-form-validator' ),
             'bfv_section_fields',
             'text',
-            'first-name',
-            __( 'HTML: <input name="first-name" ...>', 'breakdance-form-validator' )
+            'fields[first_name]',
+            __( 'Breakdance default: fields[first_name] — check via Inspect → name="…"', 'breakdance-form-validator' )
         );
 
         $this->add_field(
@@ -145,7 +145,8 @@ class BFV_Admin {
             __( 'Last Name field name', 'breakdance-form-validator' ),
             'bfv_section_fields',
             'text',
-            'last-name'
+            'fields[last_name]',
+            __( 'Breakdance default: fields[last_name]', 'breakdance-form-validator' )
         );
 
         $this->add_field(
@@ -153,7 +154,8 @@ class BFV_Admin {
             __( 'Phone field name', 'breakdance-form-validator' ),
             'bfv_section_fields',
             'text',
-            'phone'
+            'fields[phone]',
+            __( 'Breakdance default: fields[phone]', 'breakdance-form-validator' )
         );
 
         $this->add_field(
@@ -161,7 +163,8 @@ class BFV_Admin {
             __( 'Email field name', 'breakdance-form-validator' ),
             'bfv_section_fields',
             'text',
-            'email'
+            'fields[email]',
+            __( 'Breakdance default: fields[email]', 'breakdance-form-validator' )
         );
 
         // ── Section: Validation Rules ───────────────────────────────────────
@@ -228,19 +231,19 @@ class BFV_Admin {
             : $defaults['form_selector'];
 
         $clean['field_first_name'] = isset( $raw['field_first_name'] )
-            ? sanitize_key( $raw['field_first_name'] )
+            ? $this->sanitize_field_name( $raw['field_first_name'] )
             : $defaults['field_first_name'];
 
         $clean['field_last_name']  = isset( $raw['field_last_name'] )
-            ? sanitize_key( $raw['field_last_name'] )
+            ? $this->sanitize_field_name( $raw['field_last_name'] )
             : $defaults['field_last_name'];
 
         $clean['field_phone']      = isset( $raw['field_phone'] )
-            ? sanitize_key( $raw['field_phone'] )
+            ? $this->sanitize_field_name( $raw['field_phone'] )
             : $defaults['field_phone'];
 
         $clean['field_email']      = isset( $raw['field_email'] )
-            ? sanitize_key( $raw['field_email'] )
+            ? $this->sanitize_field_name( $raw['field_email'] )
             : $defaults['field_email'];
 
         $clean['name_min_length']  = isset( $raw['name_min_length'] )
@@ -307,13 +310,16 @@ class BFV_Admin {
 
                     <div class="bfv-card">
                         <h3><?php esc_html_e( 'How to find field names', 'breakdance-form-validator' ); ?></h3>
-                        <ol>
-                            <li><?php esc_html_e( 'Open your page in Breakdance editor.', 'breakdance-form-validator' ); ?></li>
-                            <li><?php esc_html_e( 'Click the Form widget → select a field.', 'breakdance-form-validator' ); ?></li>
-                            <li><?php esc_html_e( 'Look for the "Name / ID" setting — that value is the field name.', 'breakdance-form-validator' ); ?></li>
-                        </ol>
-                        <p><?php esc_html_e( 'Alternatively, visit your page, right-click on an input field and choose Inspect. Look for:', 'breakdance-form-validator' ); ?></p>
-                        <code>&lt;input name="<strong>your-field-name</strong>" ...&gt;</code>
+                        <p><?php esc_html_e( 'Breakdance Builder uses bracket notation by default:', 'breakdance-form-validator' ); ?></p>
+                        <ul>
+                            <li><code>fields[first_name]</code></li>
+                            <li><code>fields[last_name]</code></li>
+                            <li><code>fields[phone]</code></li>
+                            <li><code>fields[email]</code></li>
+                        </ul>
+                        <p><?php esc_html_e( 'To verify, visit your page, right-click an input and choose Inspect. Look for:', 'breakdance-form-validator' ); ?></p>
+                        <code>&lt;input name="<strong>fields[first_name]</strong>" ...&gt;</code>
+                        <p style="margin-top:10px"><?php esc_html_e( 'If your field uses a custom Name / ID in the Breakdance editor, use that exact value instead.', 'breakdance-form-validator' ); ?></p>
                     </div>
 
                     <div class="bfv-card">
@@ -375,6 +381,23 @@ class BFV_Admin {
     }
 
     // ── Helper ──────────────────────────────────────────────────────────────
+
+    /**
+     * Sanitizes a field name attribute value.
+     *
+     * sanitize_key() strips brackets, which breaks Breakdance's fields[name]
+     * notation. This method allows lowercase alphanumerics, hyphens, underscores,
+     * and square brackets so both formats work: plain ("email") and bracket
+     * notation ("fields[email]").
+     *
+     * @param string $value Raw input value.
+     * @return string
+     */
+    private function sanitize_field_name( $value ) {
+        $value = strtolower( sanitize_text_field( $value ) );
+        $value = preg_replace( '/[^a-z0-9_\-\[\]]/', '', $value );
+        return $value;
+    }
 
     /**
      * Registers a single settings field.
