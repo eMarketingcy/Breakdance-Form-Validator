@@ -81,3 +81,249 @@
     transform: translateY(0);
   }
 }
+
+
+/* =============================================================================
+   PHONE FIELD — COUNTRY SELECTOR
+   ============================================================================= */
+
+/* Flex wrapper that groups the country button + phone input into one unit.
+   position: relative gives the error tooltip an offset parent. */
+.bfv-phone-wrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+}
+
+/* ── Country trigger button ──────────────────────────────────────────────── */
+
+.bfv-country-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  /* Mirror the phone input's border / radius / background via CSS variables
+     so the button always looks like it belongs to the same control. */
+  border: 1px solid var(--bde-form-input-border-color, #d1d5db);
+  border-right: none;
+  border-radius:
+    var(--bde-form-input-border-radius, 6px)
+    0
+    0
+    var(--bde-form-input-border-radius, 6px);
+  background: var(--bde-form-input-background-color, #f9fafb);
+  color: var(--bde-form-input-color, #374151);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  /* Minimum width accommodates longest dial codes like +1868 */
+  min-width: 78px;
+}
+
+.bfv-country-btn:hover {
+  background: var(--bde-form-input-background-color-hover, #f3f4f6);
+}
+
+.bfv-country-btn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
+.bfv-country-btn[aria-expanded="true"] {
+  background: var(--bde-form-input-background-color-focus, #fff);
+  border-color: var(--bde-form-input-border-color-focus, #2563eb);
+}
+
+.bfv-country-btn .bfv-flag {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.bfv-country-btn .bfv-dial {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.bfv-country-btn .bfv-caret {
+  font-size: 9px;
+  opacity: 0.55;
+  margin-left: 1px;
+  transition: transform 0.15s ease;
+}
+
+.bfv-country-btn[aria-expanded="true"] .bfv-caret {
+  transform: rotate(180deg);
+}
+
+/* ── Phone input inside the wrap ─────────────────────────────────────────── */
+/*
+ * Override Breakdance's width:100% so the input grows to fill only the
+ * remaining space after the country button. !important is intentional —
+ * Breakdance ships a highly-specific selector that sets width:100%.
+ */
+.bfv-phone-wrap input[type="tel"],
+.bfv-phone-wrap input[type="text"] {
+  flex: 1 1 auto   !important;
+  width: 0         !important;
+  min-width: 0     !important;
+  border-top-left-radius:    0 !important;
+  border-bottom-left-radius: 0 !important;
+}
+
+/* ── Dropdown panel ──────────────────────────────────────────────────────── */
+
+.bfv-country-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 99999;
+  width: 300px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  animation: bfv-fadeIn 0.14s ease forwards;
+}
+
+.bfv-country-dropdown[hidden] {
+  display: none;
+}
+
+/* ── Search input ────────────────────────────────────────────────────────── */
+
+.bfv-country-search {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: none;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 13px;
+  font-family: inherit;
+  color: #111827;
+  background: #fafafa;
+  outline: none;
+}
+
+.bfv-country-search:focus {
+  background: #fff;
+  border-bottom-color: #d1d5db;
+}
+
+.bfv-country-search::placeholder {
+  color: #9ca3af;
+}
+
+/* ── Country list ────────────────────────────────────────────────────────── */
+
+.bfv-country-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: 240px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+
+.bfv-country-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.bfv-country-list::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 10px;
+}
+
+.bfv-country-list li[data-code] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.4;
+  transition: background 0.1s;
+}
+
+.bfv-country-list li[data-code]:hover,
+.bfv-country-list li[data-code]:focus {
+  background: #f0f6ff;
+  outline: none;
+}
+
+.bfv-country-list li[data-code].bfv-active {
+  background: #eff6ff;
+}
+
+.bfv-country-list li[data-code].bfv-active .bfv-country-name {
+  font-weight: 600;
+  color: #1d4ed8;
+}
+
+.bfv-country-list .bfv-flag {
+  font-size: 18px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.bfv-country-list .bfv-country-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bfv-country-list .bfv-country-dial {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #9ca3af;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Empty / no-results state */
+.bfv-country-no-results {
+  padding: 14px;
+  text-align: center;
+  font-size: 13px;
+  color: #9ca3af;
+}
+
+/* ── Error state on the wrap ─────────────────────────────────────────────── */
+/*
+ * When the phone input gets .bfv-field-error, also highlight the country
+ * button border so the whole row looks invalid together.
+ */
+.bfv-phone-wrap:has(.bfv-field-error) .bfv-country-btn {
+  border-color: #e02b2b;
+}
+
+/* ── Mobile ──────────────────────────────────────────────────────────────── */
+
+@media (max-width: 520px) {
+  .bfv-country-dropdown {
+    /* On narrow screens, expand to the full width of the phone wrap */
+    width: 100%;
+    left: 0;
+    right: 0;
+  }
+
+  .bfv-country-btn .bfv-dial {
+    /* Hide the dial code text on very small screens; flag alone is enough */
+    display: none;
+  }
+
+  .bfv-country-btn {
+    min-width: 48px;
+  }
+}

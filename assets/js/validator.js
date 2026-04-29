@@ -12,6 +12,12 @@
  *   1. beforeinput  — fires before the DOM changes; e.preventDefault() blocks cleanly.
  *   2. keydown      — older-browser fallback for physical key presses.
  *   3. input        — final safety net; strips anything that slipped through layers 1-2.
+ *
+ * Phone field country selector:
+ *   Requires phone-countries.js (loaded before this file) which exposes the
+ *   global BFV_COUNTRIES array. When present, a flag + dial-code button is
+ *   injected to the left of the phone input. Selecting a country sets the
+ *   correct international prefix and forces the customer to include it.
  */
 
 /* =============================================================================
@@ -30,15 +36,8 @@ const CONFIG = {
     : { firstName: 'fields[first_name]', lastName: 'fields[last_name]', phone: 'fields[phone]', email: 'fields[email]' },
 
   // ── Name field rules ──────────────────────────────────────────────────────
-  // Full-value validation regex (no `g` flag — used with ^ and $).
   NAME_ALLOWED_CHARS_REGEX : /^[A-Za-zÀ-ɏЀ-ӿ\s'\-]+$/,
-
-  // Used with e.key in keydown — tests a single character, NO `g` flag.
-  // (A regex with `g` is stateful and alternates results on repeated .test() calls.)
   NAME_FORBIDDEN_KEY_REGEX : /[^A-Za-zÀ-ɏЀ-ӿ\s'\-]/,
-
-  // Used in the `input` handler to strip everything that should not be there.
-  // `g` flag is correct here because we call .replace(), not .test().
   NAME_STRIP_REGEX         : /[^A-Za-zÀ-ɏЀ-ӿ\s'\-]/g,
 
   NAME_MIN_LENGTH : (typeof bfvConfig !== 'undefined') ? Number( bfvConfig.nameMinLength )  : 2,
@@ -57,11 +56,13 @@ const CONFIG = {
   // ── Email field rules ─────────────────────────────────────────────────────
   EMAIL_REGEX : /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/,
 
-  // Two separate Cyrillic regexes — one without `g` for .test(), one with `g` for .replace().
-  // NEVER share a single /g regex between .test() calls — it has stateful lastIndex
-  // that causes every other call to return the wrong result.
   CYRILLIC_TEST_REGEX  : /[Ѐ-ӿ]/,
   CYRILLIC_STRIP_REGEX : /[Ѐ-ӿ]/g,
+
+  // ── Country selector ──────────────────────────────────────────────────────
+  DEFAULT_COUNTRY : (typeof bfvConfig !== 'undefined' && bfvConfig.defaultCountry)
+    ? bfvConfig.defaultCountry
+    : 'US',
 
   // ── Error tooltip ─────────────────────────────────────────────────────────
   ERROR_MESSAGE : (typeof bfvConfig !== 'undefined' && bfvConfig.errorMessage)
@@ -87,6 +88,9 @@ class BreakdanceFormValidator {
     this.form      = formEl;
     this.container = containerEl || formEl;
 
+    // Tracks the currently selected dial code for the phone field.
+    this._phoneDial = null;
+
     this.fields = {
       firstName : this._findField( CONFIG.FIELD_NAMES.firstName ),
       lastName  : this._findField( CONFIG.FIELD_NAMES.lastName ),
@@ -109,46 +113,24 @@ class BreakdanceFormValidator {
 
   // ── Private: Field Setup ─────────────────────────────────────────────────
 
-  /**
-   * Name field — three-layer defence against forbidden characters.
-   *
-   * Layer 1: beforeinput (desktop + mobile, ALL input methods)
-   *   `e.data` is the exact text about to be inserted. Testing it before the
-   *   DOM changes and calling preventDefault() is the cleanest, most reliable
-   *   block available in modern browsers. Covers keyboard, paste, drag-drop,
-   *   autofill, and speech input in a single handler.
-   *
-   * Layer 2: keydown (older browser fallback)
-   *   Physical key presses only. Still useful for browsers that predate
-   *   beforeinput support (Firefox < 87, older mobile WebViews).
-   *
-   * Layer 3: input (final safety net)
-   *   Strips anything that reached the field despite layers 1 and 2.
-   *   Handles edge-cases like programmatic value assignment or browser
-   *   extensions that modify input contents.
-   */
   _setupNameField( field ) {
     if ( ! field ) return;
 
-    // ── Layer 1: beforeinput ─────────────────────────────────────────────
     field.addEventListener( 'beforeinput', ( e ) => {
-      // e.data is null for deletions, arrow keys, selections — let those through.
       if ( ! e.data ) return;
       if ( CONFIG.NAME_FORBIDDEN_KEY_REGEX.test( e.data ) ) {
         e.preventDefault();
       }
     } );
 
-    // ── Layer 2: keydown ─────────────────────────────────────────────────
     field.addEventListener( 'keydown', ( e ) => {
       if ( this._isControlKey( e ) ) return;
-      if ( e.ctrlKey || e.metaKey )  return; // Allow Ctrl+C, Ctrl+V, Ctrl+A, etc.
+      if ( e.ctrlKey || e.metaKey )  return;
       if ( CONFIG.NAME_FORBIDDEN_KEY_REGEX.test( e.key ) ) {
         e.preventDefault();
       }
     } );
 
-    // ── Layer 3: input ───────────────────────────────────────────────────
     field.addEventListener( 'input', () => {
       const stripped = field.value.replace( CONFIG.NAME_STRIP_REGEX, '' );
       if ( stripped !== field.value ) {
@@ -165,21 +147,20 @@ class BreakdanceFormValidator {
     } );
   }
 
-  /**
-   * Phone field — same three-layer defence.
-   * Allows digits (0-9) and an optional leading `+` for international codes.
-   * The input handler re-formats the value to enforce "leading + only" rule
-   * regardless of how the content arrived.
-   */
   _setupPhoneField( field ) {
     if ( ! field ) return;
 
     field.setAttribute( 'type', 'tel' );
 
+    // Country selector — injected before the input event listeners so the
+    // wrapped DOM structure is in place when the listeners are attached.
+    if ( typeof BFV_COUNTRIES !== 'undefined' && BFV_COUNTRIES.length ) {
+      this._buildPhoneSelector( field );
+    }
+
     // ── Layer 1: beforeinput ─────────────────────────────────────────────
     field.addEventListener( 'beforeinput', ( e ) => {
       if ( ! e.data ) return;
-      // Allow if ALL characters in the inserted chunk are digits or `+`.
       if ( /[^0-9+]/.test( e.data ) ) {
         e.preventDefault();
       }
@@ -201,23 +182,17 @@ class BreakdanceFormValidator {
 
     // ── Layer 3: input ───────────────────────────────────────────────────
     field.addEventListener( 'input', () => {
-      const raw      = field.value;
-      const hasPlus  = raw.startsWith( '+' );
-      const digits   = raw.replace( /\D/g, '' );
-      field.value    = hasPlus ? '+' + digits : digits;
+      const raw     = field.value;
+      const hasPlus = raw.startsWith( '+' );
+      const digits  = raw.replace( /\D/g, '' );
+      field.value   = hasPlus ? '+' + digits : digits;
       this._clearError( field );
     } );
   }
 
-  /**
-   * Email field — blocks and strips Cyrillic characters.
-   * Uses two separate regexes to avoid the stateful-lastIndex bug that
-   * occurs when a /g regex is used with .test() across multiple calls.
-   */
   _setupEmailField( field ) {
     if ( ! field ) return;
 
-    // ── Layer 1: beforeinput ─────────────────────────────────────────────
     field.addEventListener( 'beforeinput', ( e ) => {
       if ( ! e.data ) return;
       if ( CONFIG.CYRILLIC_TEST_REGEX.test( e.data ) ) {
@@ -225,14 +200,12 @@ class BreakdanceFormValidator {
       }
     } );
 
-    // ── Layer 2: keydown ─────────────────────────────────────────────────
     field.addEventListener( 'keydown', ( e ) => {
       if ( CONFIG.CYRILLIC_TEST_REGEX.test( e.key ) ) {
         e.preventDefault();
       }
     } );
 
-    // ── Layer 3: input ───────────────────────────────────────────────────
     field.addEventListener( 'input', () => {
       if ( CONFIG.CYRILLIC_TEST_REGEX.test( field.value ) ) {
         field.value = field.value.replace( CONFIG.CYRILLIC_STRIP_REGEX, '' );
@@ -241,13 +214,6 @@ class BreakdanceFormValidator {
     } );
   }
 
-  /**
-   * Submit interception — two complementary strategies.
-   *
-   * 1. capture-phase `submit` event — fires before Breakdance's bubble-phase handler.
-   * 2. capture-phase `click` on the submit button — catches Breakdance versions that
-   *    attach AJAX logic to the button click rather than the form submit event.
-   */
   _setupSubmitInterception() {
     this.form.addEventListener( 'submit', ( e ) => {
       if ( ! this._handleValidation() ) {
@@ -265,6 +231,274 @@ class BreakdanceFormValidator {
         }
       }, true );
     }
+  }
+
+  // ── Private: Country Selector ────────────────────────────────────────────
+
+  /**
+   * Builds and injects the flag + dial-code country selector to the left of
+   * the phone input. Wraps the input in a flex container (.bfv-phone-wrap)
+   * so the button and input appear as a single unified control.
+   *
+   * The selector forces customers to explicitly choose their country, which
+   * automatically prepends the correct international dial code to the phone
+   * input value before submission.
+   *
+   * @param {HTMLInputElement} field — The phone input element.
+   */
+  _buildPhoneSelector( field ) {
+
+    // ── Wrapper ────────────────────────────────────────────────────────────
+    const wrap = document.createElement( 'div' );
+    wrap.className = 'bfv-phone-wrap';
+    field.parentNode.insertBefore( wrap, field );
+    wrap.appendChild( field );
+
+    // ── Trigger button ─────────────────────────────────────────────────────
+    const btn = document.createElement( 'button' );
+    btn.type      = 'button';
+    btn.className = 'bfv-country-btn';
+    btn.setAttribute( 'aria-haspopup', 'listbox' );
+    btn.setAttribute( 'aria-expanded', 'false' );
+
+    const flagEl  = document.createElement( 'span' );
+    flagEl.className = 'bfv-flag';
+    flagEl.setAttribute( 'aria-hidden', 'true' );
+
+    const dialEl  = document.createElement( 'span' );
+    dialEl.className = 'bfv-dial';
+
+    const caretEl = document.createElement( 'span' );
+    caretEl.className = 'bfv-caret';
+    caretEl.setAttribute( 'aria-hidden', 'true' );
+    caretEl.textContent = '▾';
+
+    btn.append( flagEl, dialEl, caretEl );
+
+    // ── Dropdown panel ─────────────────────────────────────────────────────
+    const dropdown = document.createElement( 'div' );
+    dropdown.className = 'bfv-country-dropdown';
+    dropdown.hidden    = true;
+
+    const searchEl = document.createElement( 'input' );
+    searchEl.type          = 'text';
+    searchEl.className     = 'bfv-country-search';
+    searchEl.placeholder   = 'Search country or dial code…';
+    searchEl.setAttribute( 'autocomplete', 'off' );
+    searchEl.setAttribute( 'aria-label',   'Search countries' );
+
+    const list = document.createElement( 'ul' );
+    list.className = 'bfv-country-list';
+    list.setAttribute( 'role',       'listbox' );
+    list.setAttribute( 'aria-label', 'Countries' );
+
+    dropdown.append( searchEl, list );
+
+    // Insert button and dropdown before the input inside the wrapper
+    wrap.insertBefore( btn,      field );
+    wrap.insertBefore( dropdown, field );
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+
+    const renderList = ( countries ) => {
+      list.innerHTML = '';
+
+      if ( ! countries.length ) {
+        const empty = document.createElement( 'li' );
+        empty.className   = 'bfv-country-no-results';
+        empty.textContent = 'No results found.';
+        list.appendChild( empty );
+        return;
+      }
+
+      const frag = document.createDocumentFragment();
+      countries.forEach( ( [ code, name, dial ] ) => {
+        const li = document.createElement( 'li' );
+        li.dataset.code = code;
+        li.setAttribute( 'role',     'option' );
+        li.setAttribute( 'tabindex', '-1' );
+
+        const f = document.createElement( 'span' );
+        f.className = 'bfv-flag';
+        f.setAttribute( 'aria-hidden', 'true' );
+        f.textContent = this._flagEmoji( code );
+
+        const n = document.createElement( 'span' );
+        n.className   = 'bfv-country-name';
+        n.textContent = name;
+
+        const d = document.createElement( 'span' );
+        d.className   = 'bfv-country-dial';
+        d.textContent = dial;
+
+        li.append( f, n, d );
+        frag.appendChild( li );
+      } );
+      list.appendChild( frag );
+    };
+
+    // Marks the active item in the visible list without re-rendering.
+    const markActive = ( code ) => {
+      list.querySelectorAll( 'li[data-code]' ).forEach( ( li ) => {
+        li.classList.toggle( 'bfv-active', li.dataset.code === code );
+      } );
+    };
+
+    const selectCountry = ( country, updateField = true ) => {
+      const [ code, name, dial ] = country;
+
+      flagEl.textContent = this._flagEmoji( code );
+      dialEl.textContent = dial;
+      btn.setAttribute( 'aria-label', `Country: ${ name } ${ dial }. Click to change.` );
+
+      if ( updateField ) {
+        const old = this._phoneDial || '';
+        const cur = field.value;
+
+        if ( ! cur || cur === old ) {
+          field.value = dial;
+        } else if ( old && cur.startsWith( old ) ) {
+          // Preserve local digits the user already typed.
+          field.value = dial + cur.slice( old.length );
+        } else {
+          field.value = dial;
+        }
+      }
+
+      this._phoneDial = dial;
+      this._selectedCountryCode = code;
+      markActive( code );
+    };
+
+    const openDropdown = () => {
+      renderList( BFV_COUNTRIES );
+      markActive( this._selectedCountryCode );
+      dropdown.hidden = false;
+      btn.setAttribute( 'aria-expanded', 'true' );
+      searchEl.value = '';
+      searchEl.focus();
+
+      requestAnimationFrame( () => {
+        const active = list.querySelector( '.bfv-active' );
+        if ( active ) active.scrollIntoView( { block: 'nearest' } );
+      } );
+    };
+
+    const closeDropdown = () => {
+      dropdown.hidden = true;
+      btn.setAttribute( 'aria-expanded', 'false' );
+    };
+
+    // ── Initial state ──────────────────────────────────────────────────────
+
+    renderList( BFV_COUNTRIES );
+
+    // If the input already has a value with a dial code, detect and select it.
+    let initialCountry = BFV_COUNTRIES.find( ( c ) => c[ 0 ] === CONFIG.DEFAULT_COUNTRY )
+                      || BFV_COUNTRIES.find( ( c ) => c[ 0 ] === 'US' )
+                      || BFV_COUNTRIES[ 0 ];
+
+    if ( field.value && field.value.startsWith( '+' ) ) {
+      // Sort longest dial codes first so +1868 matches before +1.
+      const sorted  = BFV_COUNTRIES.slice().sort( ( a, b ) => b[ 2 ].length - a[ 2 ].length );
+      const matched = sorted.find( ( c ) => field.value.startsWith( c[ 2 ] ) );
+      if ( matched ) initialCountry = matched;
+    }
+
+    selectCountry( initialCountry, false );
+
+    // Pre-fill the dial code only when the field is empty.
+    if ( ! field.value ) {
+      field.value      = initialCountry[ 2 ];
+      this._phoneDial  = initialCountry[ 2 ];
+    }
+
+    // ── Event: open / close ────────────────────────────────────────────────
+    btn.addEventListener( 'click', ( e ) => {
+      e.stopPropagation();
+      dropdown.hidden ? openDropdown() : closeDropdown();
+    } );
+
+    // ── Event: search filter ───────────────────────────────────────────────
+    searchEl.addEventListener( 'input', () => {
+      const q        = searchEl.value.trim().toLowerCase();
+      const filtered = q
+        ? BFV_COUNTRIES.filter( ( [ code, name, dial ] ) =>
+            name.toLowerCase().includes( q ) ||
+            dial.includes( q ) ||
+            code.toLowerCase().startsWith( q )
+          )
+        : BFV_COUNTRIES;
+      renderList( filtered );
+      markActive( this._selectedCountryCode );
+    } );
+
+    // ── Event: select country from list ───────────────────────────────────
+    list.addEventListener( 'click', ( e ) => {
+      const li = e.target.closest( 'li[data-code]' );
+      if ( ! li ) return;
+      const country = BFV_COUNTRIES.find( ( c ) => c[ 0 ] === li.dataset.code );
+      if ( country ) {
+        selectCountry( country );
+        closeDropdown();
+        field.focus();
+      }
+    } );
+
+    // ── Event: keyboard navigation ─────────────────────────────────────────
+    searchEl.addEventListener( 'keydown', ( e ) => {
+      if ( e.key === 'ArrowDown' ) {
+        e.preventDefault();
+        const first = list.querySelector( 'li[data-code]' );
+        if ( first ) first.focus();
+      } else if ( e.key === 'Enter' ) {
+        e.preventDefault();
+        const first = list.querySelector( 'li[data-code]' );
+        if ( first ) first.click();
+      } else if ( e.key === 'Escape' ) {
+        closeDropdown();
+        btn.focus();
+      }
+    } );
+
+    list.addEventListener( 'keydown', ( e ) => {
+      const items   = [ ...list.querySelectorAll( 'li[data-code]' ) ];
+      const focused = document.activeElement;
+      const idx     = items.indexOf( focused );
+
+      if ( e.key === 'ArrowDown' ) {
+        e.preventDefault();
+        if ( idx < items.length - 1 ) items[ idx + 1 ].focus();
+      } else if ( e.key === 'ArrowUp' ) {
+        e.preventDefault();
+        if ( idx > 0 ) items[ idx - 1 ].focus();
+        else searchEl.focus();
+      } else if ( e.key === 'Enter' || e.key === ' ' ) {
+        e.preventDefault();
+        if ( focused && focused.dataset && focused.dataset.code ) focused.click();
+      } else if ( e.key === 'Escape' ) {
+        closeDropdown();
+        btn.focus();
+      }
+    } );
+
+    // ── Event: close on outside click ─────────────────────────────────────
+    document.addEventListener( 'click', ( e ) => {
+      if ( ! wrap.contains( e.target ) ) closeDropdown();
+    } );
+  }
+
+  /**
+   * Converts a 2-letter ISO country code to its emoji flag representation
+   * using Unicode Regional Indicator Symbols (U+1F1E6 … U+1F1FF).
+   *
+   * @param  {string} code — e.g. 'US', 'GR'
+   * @return {string} Emoji flag, e.g. '🇺🇸'
+   */
+  _flagEmoji( code ) {
+    return [ ...code.toUpperCase() ]
+      .map( ( c ) => String.fromCodePoint( 0x1F1E6 + c.charCodeAt( 0 ) - 65 ) )
+      .join( '' );
   }
 
   // ── Private: Validation Logic ────────────────────────────────────────────
@@ -300,7 +534,19 @@ class BreakdanceFormValidator {
 
   _validatePhoneField( field ) {
     if ( ! field ) return true;
-    return field.value.replace( /\D/g, '' ).length >= CONFIG.PHONE_MIN_DIGITS;
+
+    const digits = field.value.replace( /\D/g, '' );
+
+    if ( digits.length < CONFIG.PHONE_MIN_DIGITS ) return false;
+
+    // When the country selector is active, ensure the user typed local digits
+    // beyond the country code (i.e. the field is not just the dial code itself).
+    if ( this._phoneDial ) {
+      const dialDigits = this._phoneDial.replace( /\D/g, '' ).length;
+      if ( digits.length <= dialDigits ) return false;
+    }
+
+    return true;
   }
 
   _validateEmailField( field ) {
@@ -310,16 +556,27 @@ class BreakdanceFormValidator {
 
   // ── Private: Error Tooltip UI ────────────────────────────────────────────
 
+  /**
+   * Shows an error tooltip after the field (or after its .bfv-phone-wrap
+   * wrapper when the country selector is present).
+   */
   _showError( field ) {
-    if ( field.nextElementSibling && field.nextElementSibling.classList.contains( CONFIG.TOOLTIP_CLASS ) ) {
+    // For the phone field, anchor the tooltip after the whole wrap div so it
+    // appears below the combined selector+input row, not mid-widget.
+    const anchor = ( field.parentElement && field.parentElement.classList.contains( 'bfv-phone-wrap' ) )
+      ? field.parentElement
+      : field;
+
+    if ( anchor.nextElementSibling && anchor.nextElementSibling.classList.contains( CONFIG.TOOLTIP_CLASS ) ) {
       return;
     }
+
     const tooltip = document.createElement( 'span' );
     tooltip.className   = CONFIG.TOOLTIP_CLASS;
     tooltip.textContent = CONFIG.ERROR_MESSAGE;
-    tooltip.setAttribute( 'role', 'alert' );
+    tooltip.setAttribute( 'role',      'alert' );
     tooltip.setAttribute( 'aria-live', 'assertive' );
-    field.insertAdjacentElement( 'afterend', tooltip );
+    anchor.insertAdjacentElement( 'afterend', tooltip );
     field.classList.add( CONFIG.ERROR_CLASS );
     field.setAttribute( 'aria-invalid', 'true' );
   }
@@ -328,7 +585,12 @@ class BreakdanceFormValidator {
     if ( ! field ) return;
     field.classList.remove( CONFIG.ERROR_CLASS );
     field.removeAttribute( 'aria-invalid' );
-    const next = field.nextElementSibling;
+
+    const anchor = ( field.parentElement && field.parentElement.classList.contains( 'bfv-phone-wrap' ) )
+      ? field.parentElement
+      : field;
+
+    const next = anchor.nextElementSibling;
     if ( next && next.classList.contains( CONFIG.TOOLTIP_CLASS ) ) {
       next.remove();
     }
@@ -352,28 +614,8 @@ class BreakdanceFormValidator {
 
 /* =============================================================================
    3. BOOTSTRAP
-   Attaches a validator to every Breakdance form found on the page.
-
-   Three mechanisms are used together so no form is ever missed:
-
-   A) Immediate run — covers the common case where the script executes after
-      the DOM is already fully parsed (footer-loaded scripts on desktop often
-      run after DOMContentLoaded has fired and readyState is already "complete").
-
-   B) DOMContentLoaded fallback — for the case where the script loads before
-      parsing finishes (rare with footer placement, but possible with caching).
-
-   C) MutationObserver — watches for Breakdance forms injected dynamically
-      AFTER initial load: popup/modal forms, tab-switched content, Breakdance
-      popups, etc. This is the main reason the plugin would work on mobile
-      (slower network → more time for DOMContentLoaded) but fail on desktop
-      (fast load → DOMContentLoaded already past when script runs).
    ============================================================================= */
 
-/**
- * Tracks already-initialised containers so MutationObserver callbacks
- * never attach a second validator to the same form.
- */
 const _initialised = new WeakSet();
 
 function initForms() {
@@ -391,16 +633,15 @@ function initForms() {
   } );
 }
 
-// A) Run immediately — catches forms already in the DOM.
+// A) Run immediately.
 initForms();
 
-// B) DOMContentLoaded — safety net if A ran before parsing finished.
+// B) DOMContentLoaded fallback.
 if ( document.readyState === 'loading' ) {
   document.addEventListener( 'DOMContentLoaded', initForms );
 }
 
-// C) MutationObserver — catches forms added after initial parse
-//    (Breakdance popups, modals, dynamic page builders, etc.).
+// C) MutationObserver for dynamically-injected forms (popups, modals, etc.).
 if ( typeof MutationObserver !== 'undefined' ) {
   const observer = new MutationObserver( initForms );
   observer.observe( document.documentElement, { childList: true, subtree: true } );
