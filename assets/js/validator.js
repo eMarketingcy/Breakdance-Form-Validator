@@ -27,7 +27,7 @@ const CONFIG = {
 
   FIELD_NAMES: (typeof bfvConfig !== 'undefined' && bfvConfig.fieldNames)
     ? bfvConfig.fieldNames
-    : { firstName: 'first-name', lastName: 'last-name', phone: 'phone', email: 'email' },
+    : { firstName: 'fields[first_name]', lastName: 'fields[last_name]', phone: 'fields[phone]', email: 'fields[email]' },
 
   // ── Name field rules ──────────────────────────────────────────────────────
   // Full-value validation regex (no `g` flag — used with ^ and $).

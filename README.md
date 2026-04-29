@@ -132,6 +132,29 @@ Breakdance's UI:
 
 ## Changelog
 
+### 1.4.0 — 2026-04-29
+
+**Bug Fixes**
+
+- **Validator never matched any field — fields[name] bracket notation not supported**:
+  Breakdance Builder renders its form inputs with `name="fields[first_name]"`,
+  `name="fields[last_name]"`, `name="fields[phone]"`, and `name="fields[email]"`.
+  The plugin's hardcoded defaults (`first-name`, `last-name`, `phone`, `email`) did
+  not match these names, so `querySelector` found nothing and all validation was
+  silently skipped. Updated defaults in PHP (`get_defaults()`), JavaScript
+  (`CONFIG.FIELD_NAMES`), and the admin settings page placeholders to use
+  Breakdance's actual bracket notation.
+
+- **`sanitize_key()` silently destroyed bracket-notation field names in the database**:
+  WordPress's `sanitize_key()` strips `[` and `]`, so saving `fields[first_name]`
+  via the admin settings page stored `fieldsfirst_name` — a name that never matches
+  any real input. Replaced all four field-name sanitization calls with a new private
+  `sanitize_field_name()` helper that allows lowercase alphanumerics, hyphens,
+  underscores, and square brackets. This preserves both plain names (`email`) and
+  Breakdance bracket notation (`fields[email]`).
+
+---
+
 ### 1.3.0 — 2026-04-29
 
 **Bug Fixes**
