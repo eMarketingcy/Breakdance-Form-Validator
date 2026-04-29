@@ -14,21 +14,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class BFV_Assets {
 
-    /**
-     * Register WordPress hooks.
-     * Call this method from the main plugin file after instantiation.
-     */
     public function register() {
         add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_frontend_assets' ) );
     }
 
-    /**
-     * Enqueue front-end scripts and styles.
-     *
-     * Hooked to 'wp_enqueue_scripts' — fires on all public-facing pages.
-     * The script is loaded in the footer to ensure the DOM is ready and
-     * Breakdance's own scripts have already loaded.
-     */
     public function enqueue_frontend_assets() {
 
         wp_enqueue_style(
@@ -54,52 +43,35 @@ class BFV_Assets {
     }
 
     /**
-     * Returns the configuration array serialised and passed to the front end
-     * as the `bfvConfig` global JS object.
+     * Builds the JS config array from saved admin settings.
      *
-     * All values are filterable so themes or child plugins can override them
-     * without editing this file:
-     *
-     *   add_filter( 'bfv_js_config', function( $config ) {
-     *       $config['formSelector'] = '.my-custom-form';
-     *       return $config;
-     *   } );
+     * Priority order (highest → lowest):
+     *   1. Values returned by the `bfv_js_config` PHP filter.
+     *   2. Settings saved in the WordPress admin (bfv_settings option).
+     *   3. Hard-coded defaults from BFV_Admin::get_defaults().
      *
      * @return array
      */
     private function get_js_config() {
+        $s = BFV_Admin::get_settings();
+
         $config = array(
-            // CSS selector used to find all Breakdance forms on the page.
-            // Targets both the native Breakdance wrapper (.bde-form) and the
-            // legacy custom class (.breakdance-form) in one comma-separated string.
-            // The JS bootstrap resolves the actual <form> element from whatever
-            // element the selector returns, handling wrapper-div patterns correctly.
-            'formSelector'   => '.bde-form, .breakdance-form',
-
-            // Attribute used to identify field purpose.
-            // These must match the `name` attribute on your Breakdance form inputs.
-            // Check field names in Breakdance's form editor or by inspecting the HTML.
+            'formSelector'   => $s['form_selector'],
             'fieldNames'     => array(
-                'firstName' => 'first-name',
-                'lastName'  => 'last-name',
-                'phone'     => 'phone',
-                'email'     => 'email',
+                'firstName' => $s['field_first_name'],
+                'lastName'  => $s['field_last_name'],
+                'phone'     => $s['field_phone'],
+                'email'     => $s['field_email'],
             ),
-
-            // The exact message shown in the error tooltip.
-            'errorMessage'   => __( '! Please correct this field.', 'breakdance-form-validator' ),
-
-            // Minimum and maximum character length for name fields.
-            'nameMinLength'  => 2,
-            'nameMaxLength'  => 30,
-
-            // Minimum number of digits required for a valid phone number.
-            // 7 is the shortest real-world local number.
-            'phoneMinDigits' => 7,
+            'errorMessage'   => $s['error_message'],
+            'nameMinLength'  => (int) $s['name_min_length'],
+            'nameMaxLength'  => (int) $s['name_max_length'],
+            'phoneMinDigits' => (int) $s['phone_min_digits'],
         );
 
         /**
          * Filter the JS config array before it is passed to the front end.
+         * Values returned by this filter take priority over admin settings.
          *
          * @param array $config Associative array of configuration values.
          */

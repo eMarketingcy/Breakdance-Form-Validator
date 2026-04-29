@@ -63,22 +63,16 @@ CSS Classes field inside the Breakdance editor as an alternative.
 
 ## Configuration
 
-### Matching your Breakdance field names
+### Admin Settings Page (recommended)
 
-Breakdance assigns a `name` attribute to each form input based on what you type
-in the form builder. Open `includes/class-bfv-assets.php`, find `get_js_config()`,
-and update the `fieldNames` array to match your exact field names:
+Go to **Settings → BF Validator** in the WordPress dashboard. All plugin options
+are available there — no code editing needed. The sidebar on that page also explains
+how to find your form selector and field names by inspecting the rendered HTML.
 
-```php
-'fieldNames' => array(
-    'firstName' => 'first-name',   // ← change to match your Breakdance field name
-    'lastName'  => 'last-name',
-    'phone'     => 'phone',
-    'email'     => 'email',
-),
-```
+### Matching your Breakdance field names (code alternative)
 
-You can find the field names in Breakdance's form editor under each field's
+If you prefer to configure via code, use the PHP filter described below.
+You can find field names in Breakdance's form editor under each field's
 **Name / ID** setting, or by inspecting the rendered HTML (`<input name="...">`).
 
 ### Using the PHP filter
@@ -137,6 +131,85 @@ Breakdance's UI:
 ---
 
 ## Changelog
+
+### 1.3.0 — 2026-04-29
+
+**Bug Fixes**
+
+- **Character blocking did not work on desktop for any input method other than
+  physical keyboard**: `keydown` only fires for hardware key presses — it is
+  completely bypassed by right-click paste, drag-and-drop text, browser autofill,
+  speech input, and browser extensions that inject values. The same gap existed on
+  mobile for IME composition. Added `beforeinput` as the primary blocking layer:
+  it fires before the DOM changes for *every* input method on every platform, and
+  `e.preventDefault()` cleanly stops the insertion. `keydown` is kept as a fallback
+  for older browsers. The existing `input` handler (layer 3) remains as a final
+  safety net. This triple-layer defence now reliably blocks letters in the phone
+  field and digits in the name fields everywhere.
+
+- **Cyrillic blocking in email alternated between working and not working on
+  desktop**: The shared `CYRILLIC_REGEX` used the `g` flag. In JavaScript, a
+  regex with `g` is stateful — calling `.test()` advances `lastIndex`, so every
+  other `.test()` call on the same regex object returns the wrong result. Split
+  into `CYRILLIC_TEST_REGEX` (no `g`, used for `.test()`) and
+  `CYRILLIC_STRIP_REGEX` (with `g`, used for `.replace()`).
+
+- **Plugin did not initialise on fast desktop connections**: When the script was
+  served from cache, it executed *after* `DOMContentLoaded` had already fired.
+  The sole `DOMContentLoaded` listener never ran. Fixed with three complementary
+  bootstrap mechanisms:
+  1. **Immediate run** — `initForms()` is called as soon as the script parses,
+     catching forms already in the DOM regardless of `readyState`.
+  2. **DOMContentLoaded fallback** — still attached when `readyState === 'loading'`,
+     for the minority case where the script loads before parsing finishes.
+  3. **MutationObserver** — watches for Breakdance forms added to the DOM after
+     initial load (popup forms, tab-switched content, modals). A `WeakSet` tracks
+     already-initialised containers so observers never double-attach.
+
+- **`NAME_BLOCKED_KEY_REGEX` used in `keydown` did not match `NAME_STRIP_REGEX`
+  used in `input`**: The two were defined independently and could drift. Unified
+  to a single source of truth: `NAME_FORBIDDEN_KEY_REGEX` (no `g`) for `.test()`
+  in `keydown` and `beforeinput`, and `NAME_STRIP_REGEX` (with `g`) for
+  `.replace()` in `input`.
+
+- **`keydown` name handler missing `Ctrl`/`Meta` guard**: Unlike the phone handler,
+  the name `keydown` handler did not have `if (e.ctrlKey || e.metaKey) return`.
+  Fixed so keyboard shortcuts (Ctrl+A, Ctrl+Z, etc.) are never accidentally blocked.
+
+---
+
+### 1.2.0 — 2026-04-29
+
+**Bug Fixes**
+
+- **Name fields accepted digits and special chars via paste / mobile IME**: The
+  `keydown` handler blocked forbidden characters during typing but the `input`
+  handler never stripped them when they arrived via paste, drag-and-drop, autofill,
+  or mobile IME composition. Added a `NAME_STRIP_REGEX` constant (the complement of
+  `NAME_ALLOWED_CHARS_REGEX`) and applied it in the `input` handler so only letters,
+  spaces, hyphens, and apostrophes can ever appear in a name field, regardless of
+  how the content was entered. Cursor position is preserved after stripping.
+
+- **Phone field: same bypass possible on mobile / paste**: Confirmed the existing
+  `input` handler already sanitises phone values — no additional fix needed beyond
+  name fields above.
+
+**New Features**
+
+- **WordPress Admin Settings Page** (`Settings → BF Validator`): All plugin
+  configuration is now manageable through the WordPress dashboard without touching
+  any code. Configurable settings:
+  - Form CSS selector (how the plugin finds Breakdance forms)
+  - Field name / ID for each of the four fields (first name, last name, phone, email)
+  - Name minimum and maximum character length
+  - Phone minimum digit count
+  - Error tooltip message text
+- Settings are stored in the database via the WordPress Settings API and read
+  automatically by the asset enqueuer.
+- Built-in sidebar with instructions for finding field names and form selectors.
+- PHP filter `bfv_js_config` still works and takes priority over admin settings.
+
+---
 
 ### 1.1.0 — 2026-04-29
 
