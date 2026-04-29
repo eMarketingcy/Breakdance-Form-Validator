@@ -46,9 +46,13 @@ const CONFIG = {
   //       non-letter chars that sit between Z(90) and a(97) in ASCII).
   NAME_ALLOWED_CHARS_REGEX : /^[A-Za-zÀ-ɏЀ-ӿ\s'\-]+$/,
 
-  // Regex used on keydown to BLOCK individual forbidden characters.
-  // Blocks: digits 0-9, and all common special/punctuation characters.
+  // Used on keydown to BLOCK forbidden characters as they are typed.
   NAME_BLOCKED_KEY_REGEX   : /[\d!@#$%^&*()+={}\[\]:;"<>,.?\/\\|`~]/,
+
+  // Used in the input handler to STRIP any disallowed character that slips
+  // through keydown (paste, mobile IME, autofill, drag-and-drop).
+  // This is the character-class complement of NAME_ALLOWED_CHARS_REGEX.
+  NAME_STRIP_REGEX         : /[^A-Za-zÀ-ɏЀ-ӿ\s'\-]/g,
 
   // Length constraints for first and last name.
   NAME_MIN_LENGTH : (typeof bfvConfig !== 'undefined') ? Number(bfvConfig.nameMinLength) : 2,
@@ -150,10 +154,24 @@ class BreakdanceFormValidator {
     } );
 
     field.addEventListener( 'input', () => {
+      // Strip any disallowed character that bypassed keydown (paste, mobile
+      // IME, autofill, drag-and-drop). Must run before the length trim so
+      // the cursor position after strip is as accurate as possible.
+      const stripped = field.value.replace( CONFIG.NAME_STRIP_REGEX, '' );
+      if ( stripped !== field.value ) {
+        // Preserve cursor position: account for chars removed before the cursor.
+        const cursor   = field.selectionStart;
+        const removed  = field.value.length - stripped.length;
+        field.value    = stripped;
+        const newCursor = Math.max( 0, cursor - removed );
+        field.setSelectionRange( newCursor, newCursor );
+      }
+
       // Truncate silently if pasted content exceeds max length.
       if ( field.value.length > CONFIG.NAME_MAX_LENGTH ) {
         field.value = field.value.slice( 0, CONFIG.NAME_MAX_LENGTH );
       }
+
       this._clearError( field );
     } );
   }

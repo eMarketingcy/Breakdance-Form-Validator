@@ -63,22 +63,16 @@ CSS Classes field inside the Breakdance editor as an alternative.
 
 ## Configuration
 
-### Matching your Breakdance field names
+### Admin Settings Page (recommended)
 
-Breakdance assigns a `name` attribute to each form input based on what you type
-in the form builder. Open `includes/class-bfv-assets.php`, find `get_js_config()`,
-and update the `fieldNames` array to match your exact field names:
+Go to **Settings → BF Validator** in the WordPress dashboard. All plugin options
+are available there — no code editing needed. The sidebar on that page also explains
+how to find your form selector and field names by inspecting the rendered HTML.
 
-```php
-'fieldNames' => array(
-    'firstName' => 'first-name',   // ← change to match your Breakdance field name
-    'lastName'  => 'last-name',
-    'phone'     => 'phone',
-    'email'     => 'email',
-),
-```
+### Matching your Breakdance field names (code alternative)
 
-You can find the field names in Breakdance's form editor under each field's
+If you prefer to configure via code, use the PHP filter described below.
+You can find field names in Breakdance's form editor under each field's
 **Name / ID** setting, or by inspecting the rendered HTML (`<input name="...">`).
 
 ### Using the PHP filter
@@ -137,6 +131,39 @@ Breakdance's UI:
 ---
 
 ## Changelog
+
+### 1.2.0 — 2026-04-29
+
+**Bug Fixes**
+
+- **Name fields accepted digits and special chars via paste / mobile IME**: The
+  `keydown` handler blocked forbidden characters during typing but the `input`
+  handler never stripped them when they arrived via paste, drag-and-drop, autofill,
+  or mobile IME composition. Added a `NAME_STRIP_REGEX` constant (the complement of
+  `NAME_ALLOWED_CHARS_REGEX`) and applied it in the `input` handler so only letters,
+  spaces, hyphens, and apostrophes can ever appear in a name field, regardless of
+  how the content was entered. Cursor position is preserved after stripping.
+
+- **Phone field: same bypass possible on mobile / paste**: Confirmed the existing
+  `input` handler already sanitises phone values — no additional fix needed beyond
+  name fields above.
+
+**New Features**
+
+- **WordPress Admin Settings Page** (`Settings → BF Validator`): All plugin
+  configuration is now manageable through the WordPress dashboard without touching
+  any code. Configurable settings:
+  - Form CSS selector (how the plugin finds Breakdance forms)
+  - Field name / ID for each of the four fields (first name, last name, phone, email)
+  - Name minimum and maximum character length
+  - Phone minimum digit count
+  - Error tooltip message text
+- Settings are stored in the database via the WordPress Settings API and read
+  automatically by the asset enqueuer.
+- Built-in sidebar with instructions for finding field names and form selectors.
+- PHP filter `bfv_js_config` still works and takes priority over admin settings.
+
+---
 
 ### 1.1.0 — 2026-04-29
 
